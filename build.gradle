@@ -17,6 +17,9 @@ repositories {
 dependencies {
     implementation "com.googlecode.libphonenumber:libphonenumber:${google_libphonenumber}"
     implementation "org.apache.tika:tika-core:${tika_version}"
+    implementation "org.apache.commons:commons-csv:${commons_csv_version}"
+    api "org.apache.poi:poi:${apache_poi_version}"
+    testImplementation "org.apache.poi:poi-ooxml:${apache_poi_version}"
     testImplementation "org.junit.jupiter:junit-jupiter:${junit_jupiter_version}"
     testImplementation "org.assertj:assertj-core:${assertj_version}"
 }
@@ -40,4 +43,8 @@ publishing {
 
 tasks.named('test') {
     useJUnitPlatform()
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
 }

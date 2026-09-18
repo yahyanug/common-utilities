@@ -94,8 +94,9 @@ public final class FileMimeTypeDetector {
 	 */
 	public static boolean hasConsistentExtension(byte[] content, String fileName) {
 		return detectMimeType(content).filter(type -> !"application/octet-stream".equalsIgnoreCase(type))
-				.flatMap(FileMimeTypeDetector::extensionsFor)
-				.flatMap(extensions -> extensionOf(fileName).filter(extensions::contains)).isPresent();
+				.flatMap(FileMimeTypeDetector::extensionsFor).flatMap(extensions -> FileExtensionInspector
+						.extractExtension(fileName).map(extension -> "." + extension).filter(extensions::contains))
+				.isPresent();
 	}
 
 	private static boolean hasMimeType(byte[] content, String expectedMimeType) {
@@ -111,16 +112,6 @@ public final class FileMimeTypeDetector {
 		catch (MimeTypeException exception) {
 			return Optional.empty();
 		}
-	}
-
-	private static Optional<String> extensionOf(String fileName) {
-		if (fileName == null || fileName.isBlank())
-			return Optional.empty();
-		String baseName = fileName.replace('\\', '/');
-		baseName = baseName.substring(baseName.lastIndexOf('/') + 1);
-		int extensionStart = baseName.lastIndexOf('.');
-		return extensionStart > 0 && extensionStart < baseName.length() - 1
-				? Optional.of(baseName.substring(extensionStart).toLowerCase(Locale.ROOT)) : Optional.empty();
 	}
 
 }

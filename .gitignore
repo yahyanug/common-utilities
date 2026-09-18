@@ -75,3 +75,7 @@ desktop.ini
 # Mobile Tools for Java
 # =========================
 .mtj.tmp/
+
+
+# AI agent local instructions
+AGENTS.md

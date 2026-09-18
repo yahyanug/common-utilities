@@ -17,9 +17,10 @@ public final class SensitiveDataMasker {
 	 * <p>
 	 * Prefix and suffix lengths are Unicode code-point counts, so surrogate pairs are
 	 * never split. If the requested visible portions overlap, or exactly cover the input,
-	 * every code point is masked. Null returns null and an empty value returns empty.
-	 * Negative lengths are invalid configuration and cause an
-	 * {@link IllegalArgumentException} without including the input in its message.
+	 * every code point is masked. Null returns null without checking lengths; an empty
+	 * value with non-negative lengths returns empty. For non-null input, negative lengths
+	 * cause an {@link IllegalArgumentException} without including the input in its
+	 * message.
 	 * </p>
 	 */
 	public static String mask(String value, int visiblePrefix, int visibleSuffix) {
@@ -28,7 +29,7 @@ public final class SensitiveDataMasker {
 		if (visiblePrefix < 0 || visibleSuffix < 0)
 			throw new IllegalArgumentException("Visible lengths must not be negative");
 		int codePointCount = value.codePointCount(0, value.length());
-		if (visiblePrefix + visibleSuffix >= codePointCount)
+		if ((long) visiblePrefix + visibleSuffix >= codePointCount)
 			return "*".repeat(codePointCount);
 		int prefixEnd = value.offsetByCodePoints(0, visiblePrefix);
 		int suffixStart = value.offsetByCodePoints(0, codePointCount - visibleSuffix);
@@ -38,9 +39,9 @@ public final class SensitiveDataMasker {
 
 	/**
 	 * Masks an email local part while retaining its first code point and leaving the
-	 * domain visible. A one-code-point local part and malformed values are fully masked;
-	 * null returns null and empty returns empty. This method does not validate email
-	 * syntax.
+	 * domain visible. A one-code-point local part is fully masked; malformed values
+	 * lacking exactly one non-edge @ are masked in full; null returns null and empty
+	 * returns empty. This method does not validate email syntax.
 	 */
 	public static String maskEmail(String email) {
 		if (email == null)

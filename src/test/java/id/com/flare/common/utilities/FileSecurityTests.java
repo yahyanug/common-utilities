@@ -3,17 +3,89 @@ package id.com.flare.common.utilities;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.awt.image.BufferedImage;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Set;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
+import java.util.zip.CRC32;
+
+import javax.imageio.ImageIO;
 
 import org.junit.jupiter.api.Test;
 
 import id.com.flare.common.utilities.file.FileMimeTypeDetector;
 import id.com.flare.common.utilities.file.FileNameSanitizer;
+import id.com.flare.common.utilities.file.FileExtensionInspector;
+import id.com.flare.common.utilities.file.FileSizeValidator;
+import id.com.flare.common.utilities.file.ImageDimensionInspector;
+import id.com.flare.common.utilities.file.ZipArchiveInspector;
 
 class FileSecurityTests {
+
+	@Test
+	void detectsDoubleExtensionsOnHiddenFiles() {
+		assertThat(FileExtensionInspector.extractExtension(".hidden.php.jpg")).contains("jpg");
+		assertThat(FileExtensionInspector.hasMultipleExtensions(".hidden.php.jpg")).isTrue();
+		assertThat(FileExtensionInspector.hasSuspiciousDoubleExtension(".hidden.php.jpg", Set.of("php"))).isTrue();
+		assertThat(FileExtensionInspector.hasMultipleExtensions(".hidden.jpg")).isFalse();
+	}
+
+	@Test
+	void differentiatesUnsupportedAndTruncatedImageHeaders() throws IOException {
+		byte[] truncated = { (byte) 0x89, 'P', 'N', 'G', 13, 10, 26, 10 };
+		assertThat(ImageDimensionInspector.inspect(truncated)).isEmpty();
+		org.assertj.core.api.Assertions
+				.assertThatThrownBy(() -> ImageDimensionInspector.inspect(new ByteArrayInputStream(truncated)))
+				.isInstanceOf(IOException.class);
+		assertThat(ImageDimensionInspector.inspect(new ByteArrayInputStream(new byte[] { 1, 2, 3 }))).isEmpty();
+	}
+
+	@Test
+	void rejectsPortableArchivePathAliasesInsteadOfSanitizingThem() {
+		for (String path : new String[] { "dir/file:stream", "CON.txt", "dir/.. /escape.txt", "dir//", "dir/a?b" }) {
+			assertThat(ZipArchiveInspector.isSafeEntryPath(path)).as(path).isFalse();
+			assertThat(ZipArchiveInspector.resolveEntryInsideBaseDirectory(Path.of("upload"), path)).isEmpty();
+		}
+		assertThat(ZipArchiveInspector.isSafeEntryPath("dir/")).isTrue();
+	}
+
+	@Test
+	void rejectsTruncatedZipSignaturesAndReleasesButDoesNotCloseInput() throws IOException {
+		for (byte[] bytes : new byte[][] { {}, { 'P', 'K', 3, 4 }, { 'P', 'K', 5, 6 }, { 'P', 'K', 7, 8 } })
+			assertThat(ZipArchiveInspector.hasAcceptableEntries(new ByteArrayInputStream(bytes),
+					new ZipArchiveInspector.ZipArchiveLimits(1, 10))).isFalse();
+		ByteArrayOutputStream output = new ByteArrayOutputStream();
+		try (ZipOutputStream zip = new ZipOutputStream(output)) {
+		}
+		TrackingInputStream input = new TrackingInputStream(output.toByteArray());
+		assertThat(ZipArchiveInspector.hasAcceptableEntries(input, new ZipArchiveInspector.ZipArchiveLimits(0, 0)))
+				.isTrue();
+		assertThat(input.closed).isFalse();
+	}
+
+	@Test
+	void rejectsExpansionDuringDecompressionBeforeReadingTheWholeEntry() throws IOException {
+		byte[] compressed = zipOf("large.txt", new byte[2_000_000]);
+		TrackingInputStream input = new TrackingInputStream(compressed);
+		assertThat(ZipArchiveInspector.hasAcceptableEntries(input, new ZipArchiveInspector.ZipArchiveLimits(1, 2)))
+				.isFalse();
+		assertThat(input.available()).isGreaterThan(compressed.length / 2);
+		assertThat(input.closed).isFalse();
+	}
+
+	@Test
+	void readsOnlyImageHeadersAndLeavesCallerStreamOpen() throws IOException {
+		ByteArrayOutputStream output = new ByteArrayOutputStream();
+		ImageIO.write(new BufferedImage(2, 3, BufferedImage.TYPE_INT_RGB), "png", output);
+		TrackingInputStream input = new TrackingInputStream(output.toByteArray());
+		assertThat(ImageDimensionInspector.inspect(input)).contains(new ImageDimensionInspector.ImageDimensions(2, 3));
+		assertThat(input.closed).isFalse();
+		assertThat(ImageDimensionInspector.inspect((java.io.InputStream) null)).isEmpty();
+	}
 
 	private static final byte[] PDF = "%PDF-1.7\n".getBytes(StandardCharsets.US_ASCII);
 
@@ -95,6 +167,120 @@ class FileSecurityTests {
 				});
 		assertThat(FileNameSanitizer.resolveInsideBaseDirectory(baseDirectory, "..")).isEmpty();
 		assertThat(FileNameSanitizer.resolveInsideBaseDirectory(null, "invoice.pdf")).isEmpty();
+	}
+
+	@Test
+	void validatesCallerDefinedUploadSizeAndInspectsExtensions() {
+		assertThat(FileSizeValidator.isWithinMaximumSize(10, 10)).isTrue();
+		assertThat(FileSizeValidator.isWithinMaximumSize(11, 10)).isFalse();
+		assertThat(FileSizeValidator.isWithinMaximumSize(-1, 10)).isFalse();
+		assertThat(FileSizeValidator.isWithinMaximumSize(0, -1)).isFalse();
+
+		assertThat(FileExtensionInspector.extractExtension("receipt.PDF")).contains("pdf");
+		assertThat(FileExtensionInspector.extractExtension(".profile")).isEmpty();
+		assertThat(FileExtensionInspector.extractExtension("invoice.")).isEmpty();
+		assertThat(FileExtensionInspector.extractExtension(null)).isEmpty();
+		assertThat(FileExtensionInspector.normalizeExtension(" .JpG ")).contains("jpg");
+		assertThat(FileExtensionInspector.normalizeExtension("tar.gz")).isEmpty();
+		assertThat(FileExtensionInspector.normalizeExtension("")).isEmpty();
+		assertThat(FileExtensionInspector.hasMultipleExtensions("invoice.pdf.exe")).isTrue();
+		assertThat(FileExtensionInspector.hasMultipleExtensions("archive.tar.gz")).isTrue();
+		assertThat(FileExtensionInspector.hasSuspiciousDoubleExtension("invoice.pdf.exe", Set.of("PDF"))).isTrue();
+		assertThat(FileExtensionInspector.hasSuspiciousDoubleExtension("archive.tar.gz", Set.of("pdf"))).isFalse();
+		assertThat(FileExtensionInspector.hasSuspiciousDoubleExtension(null, Set.of("pdf"))).isFalse();
+	}
+
+	@Test
+	void inspectsImageHeadersWithoutDecodingTheRaster() throws IOException {
+		BufferedImage image = new BufferedImage(4, 3, BufferedImage.TYPE_INT_RGB);
+		ByteArrayOutputStream output = new ByteArrayOutputStream();
+		assertThat(ImageIO.write(image, "png", output)).isTrue();
+
+		ImageDimensionInspector.ImageDimensions dimensions = ImageDimensionInspector.inspect(output.toByteArray())
+				.orElseThrow();
+		assertThat(dimensions.width()).isEqualTo(4);
+		assertThat(dimensions.height()).isEqualTo(3);
+		assertThat(dimensions.pixelCount()).isEqualTo(12);
+		assertThat(ImageDimensionInspector.isWithinMaximumDimensions(dimensions, 4, 3)).isTrue();
+		assertThat(ImageDimensionInspector.isWithinMaximumDimensions(dimensions, 3, 3)).isFalse();
+		assertThat(ImageDimensionInspector.isWithinMaximumPixelCount(dimensions, 12)).isTrue();
+		assertThat(ImageDimensionInspector.isWithinMaximumPixelCount(dimensions, 11)).isFalse();
+		assertThat(ImageDimensionInspector.inspect(new byte[] { (byte) 0x89, 'P', 'N', 'G' })).isEmpty();
+		assertThat(ImageDimensionInspector.inspect(new byte[0])).isEmpty();
+		assertThat(ImageDimensionInspector.inspect((byte[]) null)).isEmpty();
+		assertThat(ImageDimensionInspector.isWithinMaximumDimensions(null, 1, 1)).isFalse();
+		assertThat(ImageDimensionInspector.isWithinMaximumPixelCount(null, 1)).isFalse();
+	}
+
+	@Test
+	void validatesZipEntryPathsAndCallerDefinedLimitsWithoutExtracting() throws IOException {
+		byte[] safeZip = zipOf("images/logo.png", new byte[20]);
+		assertThat(ZipArchiveInspector.isArchive(safeZip)).isTrue();
+		assertThat(ZipArchiveInspector.isArchive(null)).isFalse();
+		assertThat(ZipArchiveInspector.isSafeEntryPath("images/logo.png")).isTrue();
+		assertThat(ZipArchiveInspector.isSafeEntryPath("../escape.txt")).isFalse();
+		assertThat(ZipArchiveInspector.isSafeEntryPath("..\\escape.txt")).isFalse();
+		assertThat(ZipArchiveInspector.isSafeEntryPath("/absolute.txt")).isFalse();
+		assertThat(ZipArchiveInspector.isSafeEntryPath("C:/absolute.txt")).isFalse();
+		assertThat(ZipArchiveInspector.isSafeEntryPath(null)).isFalse();
+		assertThat(ZipArchiveInspector.resolveEntryInsideBaseDirectory(Path.of("safe-upload-root"), "images/logo.png"))
+				.hasValueSatisfying(
+						path -> assertThat(path.startsWith(Path.of("safe-upload-root").toAbsolutePath().normalize()))
+								.isTrue());
+		assertThat(ZipArchiveInspector.resolveEntryInsideBaseDirectory(Path.of("safe-upload-root"), "../escape.txt"))
+				.isEmpty();
+
+		assertThat(ZipArchiveInspector.hasAcceptableEntries(new ByteArrayInputStream(safeZip),
+				new ZipArchiveInspector.ZipArchiveLimits(1, 100))).isTrue();
+		assertThat(ZipArchiveInspector.hasAcceptableEntries(new ByteArrayInputStream(safeZip),
+				new ZipArchiveInspector.ZipArchiveLimits(0, 100))).isFalse();
+		assertThat(ZipArchiveInspector.hasAcceptableEntries(new ByteArrayInputStream(safeZip),
+				new ZipArchiveInspector.ZipArchiveLimits(1, 0))).isFalse();
+		byte[] storedZip = storedZipOf("images/logo.png", new byte[] { 1, 2, 3 });
+		assertThat(ZipArchiveInspector.hasAcceptableEntries(new ByteArrayInputStream(storedZip),
+				new ZipArchiveInspector.ZipArchiveLimits(1, 1))).isTrue();
+		assertThat(ZipArchiveInspector.hasAcceptableEntries(new ByteArrayInputStream(storedZip),
+				new ZipArchiveInspector.ZipArchiveLimits(1, 0.99))).isFalse();
+		assertThat(
+				ZipArchiveInspector.hasAcceptableEntries(new ByteArrayInputStream(zipOf("../escape.txt", new byte[1])),
+						new ZipArchiveInspector.ZipArchiveLimits(1, 100))).isFalse();
+		assertThat(
+				ZipArchiveInspector.hasAcceptableEntries(new ByteArrayInputStream(zipOf("..\\escape.txt", new byte[1])),
+						new ZipArchiveInspector.ZipArchiveLimits(1, 100))).isFalse();
+		assertThat(
+				ZipArchiveInspector.hasAcceptableEntries(new ByteArrayInputStream(zipOf("/absolute.txt", new byte[1])),
+						new ZipArchiveInspector.ZipArchiveLimits(1, 100))).isFalse();
+		assertThat(ZipArchiveInspector.hasAcceptableEntries(null, new ZipArchiveInspector.ZipArchiveLimits(1, 1)))
+				.isFalse();
+		assertThat(ZipArchiveInspector.hasAcceptableEntries(new ByteArrayInputStream(new byte[] { 1, 2, 3 }),
+				new ZipArchiveInspector.ZipArchiveLimits(1, 1))).isFalse();
+	}
+
+	private static byte[] zipOf(String entryName, byte[] contents) throws IOException {
+		ByteArrayOutputStream output = new ByteArrayOutputStream();
+		try (ZipOutputStream zip = new ZipOutputStream(output)) {
+			zip.putNextEntry(new ZipEntry(entryName));
+			zip.write(contents);
+			zip.closeEntry();
+		}
+		return output.toByteArray();
+	}
+
+	private static byte[] storedZipOf(String entryName, byte[] contents) throws IOException {
+		CRC32 checksum = new CRC32();
+		checksum.update(contents);
+		ZipEntry entry = new ZipEntry(entryName);
+		entry.setMethod(ZipEntry.STORED);
+		entry.setSize(contents.length);
+		entry.setCompressedSize(contents.length);
+		entry.setCrc(checksum.getValue());
+		ByteArrayOutputStream output = new ByteArrayOutputStream();
+		try (ZipOutputStream zip = new ZipOutputStream(output)) {
+			zip.putNextEntry(entry);
+			zip.write(contents);
+			zip.closeEntry();
+		}
+		return output.toByteArray();
 	}
 
 	private static final class TrackingInputStream extends ByteArrayInputStream {

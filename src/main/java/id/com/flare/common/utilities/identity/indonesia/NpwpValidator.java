@@ -25,8 +25,9 @@ public final class NpwpValidator {
 	}
 
 	/**
-	 * Removes conventional spaces, periods, and hyphens and returns a canonical 15- or
-	 * 16-digit NPWP.
+	 * Trims surrounding Java {@link String#trim()} whitespace and accepts either 15 or 16
+	 * ASCII digits or the exact legacy {@code NN.NNN.NNN.N-NNN.NNN} form. Internal spaces
+	 * and misplaced separators are rejected. Null or invalid input returns empty.
 	 */
 	public static Optional<String> normalize(String npwp) {
 		if (npwp == null)

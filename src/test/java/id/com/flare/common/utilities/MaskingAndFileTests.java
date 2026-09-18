@@ -15,6 +15,12 @@ import id.com.flare.common.utilities.masking.SensitiveDataMasker;
 class MaskingAndFileTests {
 
 	@Test
+	void masksFullyWhenVisibleLengthSumWouldOverflow() {
+		assertThat(SensitiveDataMasker.mask("synthetic", Integer.MAX_VALUE, 1)).isEqualTo("*********");
+		assertThat(SensitiveDataMasker.mask("", Integer.MAX_VALUE, Integer.MAX_VALUE)).isEmpty();
+	}
+
+	@Test
 	void masksGenericValuesWithoutLeakingOverlappingOrUnicodeValues() {
 		assertThat(SensitiveDataMasker.mask("1234567890", 3, 2)).isEqualTo("123*****90");
 		assertThat(SensitiveDataMasker.mask("123456", 2, 0)).isEqualTo("12****");

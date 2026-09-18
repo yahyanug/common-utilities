@@ -1,0 +1,43 @@
+plugins {
+    id 'java-library'
+    id 'maven-publish'
+    id 'io.spring.javaformat' version '0.0.35'
+}
+
+group = "${project_group}"
+version = "${project_version}"
+
+sourceCompatibility = "${java_compatibility_version}"
+targetCompatibility = "${java_compatibility_version}"
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation "com.googlecode.libphonenumber:libphonenumber:${google_libphonenumber}"
+    implementation "org.apache.tika:tika-core:${tika_version}"
+    testImplementation "org.junit.jupiter:junit-jupiter:${junit_jupiter_version}"
+    testImplementation "org.assertj:assertj-core:${assertj_version}"
+}
+
+publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            from components.java
+
+            pom {
+                name = 'Common Utilities'
+                description = 'Common utility library'
+            }
+        }
+    }
+
+    repositories {
+        mavenLocal()
+    }
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}

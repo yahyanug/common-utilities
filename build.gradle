@@ -19,7 +19,9 @@ dependencies {
     implementation "org.apache.tika:tika-core:${tika_version}"
     implementation "org.apache.commons:commons-csv:${commons_csv_version}"
     api "org.apache.poi:poi:${apache_poi_version}"
+    compileOnly "jakarta.servlet:jakarta.servlet-api:${jakarta_servlet_api_version}"
     testImplementation "org.apache.poi:poi-ooxml:${apache_poi_version}"
+    testImplementation "jakarta.servlet:jakarta.servlet-api:${jakarta_servlet_api_version}"
     testImplementation "org.junit.jupiter:junit-jupiter:${junit_jupiter_version}"
     testImplementation "org.assertj:assertj-core:${assertj_version}"
 }

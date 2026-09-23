@@ -60,6 +60,9 @@ The project does not currently configure a remote publishing repository.
 - Network and SSRF inspection: local URL/hostname/IP syntax checks, URI normalization and
   host/scheme extraction, port and caller allow-list checks, safe redirect validation,
   and obvious private, loopback, link-local, and non-public literal target classification.
+- HTTP request metadata: servlet request client-IP, host, origin, user-agent, and request
+  detail extraction. Forwarded headers require a correctly configured trusted proxy or
+  gateway before they can inform security decisions.
 
 ## Quick Examples
 
@@ -97,6 +100,7 @@ var target = SsrfTargetClassifier.classify("https://example.com/import");
 | Tika core 2.9.0 | implementation | Content-based MIME detection and extension metadata |
 | Commons CSV 1.14.1 | implementation | CSV quoting/escaping |
 | POI core 5.5.1 | api | The existing Excel detector accepts POI `Cell` |
+| Jakarta Servlet API 6.0.0 | compileOnly/testImplementation | Servlet request metadata extraction |
 | POI OOXML 5.5.1 | testImplementation | XLSX test fixtures only |
 
 Versions are pinned in `gradle.properties`. Dependencies bring their own transitive

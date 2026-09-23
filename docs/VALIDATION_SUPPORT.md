@@ -203,6 +203,16 @@ Relative/scheme-relative redirects and all literal-IP redirects fail. Any valid 
 allowed for a listed hostname, so this is not same-origin validation. DNS classification,
 every followed redirect, and HTTP-client interpretation remain the application's responsibility.
 
+## network.http
+
+`HttpRequestUtil` extracts generic servlet request metadata, and `HttpRequestDetails`
+contains the method, selected client IP address, URI, and user agent. `HttpHeaderNames`
+defines the supported generic HTTP infrastructure header names. Client IP lookup prefers
+`X-Real-IP`, then the first usable `X-Forwarded-For` value, then the servlet remote address;
+host lookup similarly prefers the first usable `X-Forwarded-Host` value. Forwarded headers
+are request metadata and must not be trusted for security decisions unless the application is
+behind a correctly configured trusted proxy or gateway.
+
 ## Barcode and GS1
 
 | Identifier | Validation level | Format | Checksum | Limitations |
